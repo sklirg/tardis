@@ -64,7 +64,7 @@ func (b *AramBuilds) GetAramBuild(h string, force bool) (*AramBuild, error) {
 	}
 
 	for _, b := range *b.Builds {
-		if b.Hero == hero {
+		if strings.ToLower(b.Hero) == strings.ToLower(hero) {
 			return b, nil
 		}
 	}
