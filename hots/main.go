@@ -1,8 +1,11 @@
 package hots
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"math"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -21,15 +24,65 @@ type AramBuild struct {
 // The wrapper exists to set a LastSync attribute to avoid
 // fetching new buils all the time.
 type AramBuilds struct {
-	once       sync.Once
-	SheetID    string
-	SheetRange string
-	LastSync   time.Time
-	Builds     *map[string]*AramBuild
+	once        sync.Once
+	SheetID     string
+	SheetRange  string
+	LastSync    time.Time
+	Builds      *map[string]*AramBuild
+	HeroAliases map[string]string
 }
 
-var heroesMap map[string]string = map[string]string{
-	"ktz": "Kel'thuzad",
+// var heroesMap map[string]string = map[string]string{
+// 	"ktz": "Kel'thuzad",
+// }
+
+func readHeroAliasesMap() map[string]string {
+	data, err := ioutil.ReadFile("./heroaliases.json")
+
+	if err != nil {
+		fmt.Println("Failed to read heroes alias map. Skipping.")
+		return make(map[string]string)
+	}
+
+	var aliases map[string]string
+	err = json.Unmarshal(data, &aliases)
+	if err != nil {
+		fmt.Println("Failed to unmarshal heroes map to json")
+		return make(map[string]string)
+	}
+
+	return aliases
+}
+
+func writeHeroAliasesMap(updated map[string]string, update bool) error {
+	var existing map[string]string
+	if update {
+		existing = readHeroAliasesMap()
+	} else {
+		existing = updated
+	}
+
+	for k, v := range updated {
+		existing[k] = v
+	}
+
+	data, err := json.Marshal(&existing)
+
+	if err != nil {
+		fmt.Println("Failed to marshal heroes aliases data to json")
+		return err
+	}
+
+	s, err := os.Stat("./heroaliases.json")
+
+	if err != nil {
+		fmt.Println("Failed to stat heroaliases file", err)
+		return err
+	}
+
+	ioutil.WriteFile("./heroaliases.json", []byte(data), s.Mode())
+
+	return nil
 }
 
 func fetchAramBuilds(sheetID, sheetRange string) map[string]*AramBuild {
@@ -57,7 +110,7 @@ func fetchAramBuilds(sheetID, sheetRange string) map[string]*AramBuild {
 // It will check the supplied hero name against a list of known
 // aliases for the heroes
 func (b *AramBuilds) GetAramBuild(h string, force bool) (*AramBuild, error) {
-	hero, _ := GetHeroName(h)
+	hero, _ := b.GetHeroName(h)
 
 	if b == nil || b.Builds == nil {
 		return nil, fmt.Errorf("builds are not defined, try running '!hots _sync' maybe?")
@@ -75,8 +128,8 @@ func (b *AramBuilds) GetAramBuild(h string, force bool) (*AramBuild, error) {
 // GetHeroName tries to get the hero name from a map of aliases
 // If it doesn't exist, it will return the original name together
 // with an error.
-func GetHeroName(hero string) (string, error) {
-	for k, h := range heroesMap {
+func (b *AramBuilds) GetHeroName(hero string) (string, error) {
+	for k, h := range b.HeroAliases {
 		if hero == h {
 			return hero, nil
 		}
@@ -95,6 +148,7 @@ func (b *AramBuilds) HandleDiscordMessage(s *discordgo.Session, m *discordgo.Mes
 		builds := fetchAramBuilds(b.SheetID, b.SheetRange)
 		b.Builds = &builds
 		b.LastSync = time.Now()
+		b.HeroAliases = readHeroAliasesMap()
 	})
 
 	tokens := strings.Split(m.Content[1:], " ")
@@ -116,6 +170,13 @@ func (b *AramBuilds) HandleDiscordMessage(s *discordgo.Session, m *discordgo.Mes
 			return
 		}
 
+		// Magic keyword for adding alias for hero
+		if tokens[1] == "alias" {
+			msg := b.handleAliasEdit(m.Content)
+			s.ChannelMessageSend(m.ChannelID, msg)
+			return
+		}
+
 		msg, err := b.handleAramMessage(strings.Join(tokens[1:], " "))
 
 		if err != nil {
@@ -134,7 +195,7 @@ func (b *AramBuilds) HandleDiscordMessage(s *discordgo.Session, m *discordgo.Mes
 
 func (b *AramBuilds) handleAramMessage(h string) (*discordgo.MessageEmbed, error) {
 
-	hero, _ := GetHeroName(h)
+	hero, _ := b.GetHeroName(h)
 
 	build, err := b.GetAramBuild(hero, false)
 	if err != nil {
@@ -160,4 +221,45 @@ func (b *AramBuilds) handleAramMessage(h string) (*discordgo.MessageEmbed, error
 		Color:       0x40c7eb,
 		Fields:      fields,
 	}, nil
+}
+
+func (b *AramBuilds) handleAliasEdit(msg string) string {
+	help := ":information_source: specify either 'add' or 'remove' followed by `alias=heroname`, e.g. `anub=anub'arak` or `ll=li li`"
+
+	tokens := strings.Split(msg[1:], " ")
+	if len(tokens) <= 3 {
+		return help
+	}
+
+	switch strings.ToLower(tokens[2]) {
+	case "add":
+		{
+			aliasTokens := strings.Split(strings.Join(tokens[3:], " "), "=")
+			alias := strings.TrimSpace(aliasTokens[0])
+			hero := strings.TrimSpace(aliasTokens[1])
+			aliases := readHeroAliasesMap()
+			aliases[alias] = hero
+			b.HeroAliases = aliases
+			writeHeroAliasesMap(aliases, true)
+			return ":robot: Done!"
+		}
+	case "remove":
+		{
+			alias := strings.TrimSpace(tokens[3])
+			aliases := readHeroAliasesMap()
+			delete(aliases, alias)
+			b.HeroAliases = aliases
+			writeHeroAliasesMap(aliases, false)
+			return ":robot: Done!"
+		}
+	case "help":
+		{
+
+			return help
+		}
+	default:
+		{
+			return fmt.Sprintf("Didn't understand '%s' as 'add' or 'remove'.\n", tokens[2]) + help
+		}
+	}
 }
