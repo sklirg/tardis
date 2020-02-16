@@ -32,10 +32,6 @@ type AramBuilds struct {
 	HeroAliases map[string]string
 }
 
-// var heroesMap map[string]string = map[string]string{
-// 	"ktz": "Kel'thuzad",
-// }
-
 func readHeroAliasesMap() map[string]string {
 	data, err := ioutil.ReadFile("./heroaliases.json")
 
