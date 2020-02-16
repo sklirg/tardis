@@ -226,7 +226,7 @@ func (b *AramBuilds) handleAramMessage(h string) (*discordgo.MessageEmbed, error
 	return &discordgo.MessageEmbed{
 		URL:         fmt.Sprintf("https://docs.google.com/spreadsheets/d/%s/", b.SheetID),
 		Title:       "HOTS ARAM Builds",
-		Description: hero,
+		Description: build.Hero,
 		Color:       0x40c7eb,
 		Fields:      fields,
 		Footer:      &footer,
