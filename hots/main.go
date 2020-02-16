@@ -231,6 +231,9 @@ func (b *AramBuilds) handleAliasEdit(msg string) string {
 	case "add":
 		{
 			aliasTokens := strings.Split(strings.Join(tokens[3:], " "), "=")
+			if len(aliasTokens) != 2 {
+				return fmt.Sprintf(":warning: invalid number of arguments, expected 2, got %d", len(aliasTokens))
+			}
 			alias := strings.TrimSpace(aliasTokens[0])
 			hero := strings.TrimSpace(aliasTokens[1])
 			aliases := readHeroAliasesMap()
