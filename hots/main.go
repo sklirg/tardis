@@ -25,6 +25,7 @@ type AramBuild struct {
 // fetching new buils all the time.
 type AramBuilds struct {
 	once        sync.Once
+	osloLoc     *time.Location
 	SheetID     string
 	SheetRange  string
 	LastSync    time.Time
@@ -142,6 +143,14 @@ func (b *AramBuilds) GetHeroName(hero string) (string, error) {
 func (b *AramBuilds) HandleDiscordMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
 	b.once.Do(func() {
 		builds := fetchAramBuilds(b.SheetID, b.SheetRange)
+		loc, err := time.LoadLocation("Europe/Oslo")
+
+		if err != nil {
+			fmt.Println("Failed to load timezone")
+			loc = time.Local
+		}
+
+		b.osloLoc = loc
 		b.Builds = &builds
 		b.LastSync = time.Now()
 		b.HeroAliases = readHeroAliasesMap()
@@ -210,12 +219,17 @@ func (b *AramBuilds) handleAramMessage(h string) (*discordgo.MessageEmbed, error
 		level += 3.0 + (1.0 / 6.0)
 	}
 
+	footer := discordgo.MessageEmbedFooter{
+		Text: fmt.Sprintf("Last update from sheets: %s", b.LastSync.In(b.osloLoc).Format("2006/01/02 15:04:05 MST")),
+	}
+
 	return &discordgo.MessageEmbed{
 		URL:         fmt.Sprintf("https://docs.google.com/spreadsheets/d/%s/", b.SheetID),
 		Title:       "HOTS ARAM Builds",
 		Description: hero,
 		Color:       0x40c7eb,
 		Fields:      fields,
+		Footer:      &footer,
 	}, nil
 }
 
