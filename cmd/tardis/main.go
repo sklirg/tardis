@@ -10,10 +10,12 @@ import (
 	"github.com/bwmarrin/discordgo"
 	log "github.com/sirupsen/logrus"
 	"github.com/sklirg/tardis/hots"
+	"github.com/sklirg/tardis/server"
 )
 
 type tardis struct {
 	AramBuilds       *hots.AramBuilds
+	ServerManager    server.DiscordServerStore
 	DevMode          bool
 	DevListenChannel string
 }
@@ -27,12 +29,15 @@ func main() {
 			SheetID:    os.Getenv("TARDIS_HOTS_ARAM_SHEET_ID"),
 			SheetRange: os.Getenv("TARDIS_HOTS_ARAM_SHEET_RANGE"),
 		},
+		ServerManager: server.DiscordServerStore{},
 	}
 
 	if state.DevMode {
 		log.Info("Starting in dev mode")
 		log.SetLevel(log.TraceLevel)
 	}
+
+	// Set StateEnabled ?
 
 	dg, err := discordConnect(discordBotToken)
 	if err != nil {
@@ -41,6 +46,8 @@ func main() {
 	}
 
 	dg.AddHandler(state.messageCreate)
+	dg.AddHandler(state.handleReactionAdd)
+	dg.AddHandler(state.handleReactionRemove)
 
 	err = dg.Open()
 	if err != nil {
@@ -49,6 +56,14 @@ func main() {
 	}
 
 	log.Info("Bot is now running. Press CTRL-C to exit.")
+
+	log.WithField("state", *dg.State).Debug("State")
+
+	for _, guild := range dg.State.Ready.Guilds {
+		// Fetch guild info from database if we have it
+		log.WithField("guild_id", guild.ID).Debugf("Connected to '%s'", guild.Name)
+	}
+
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
 	<-sc
@@ -114,11 +129,69 @@ func (tardis *tardis) messageCreate(s *discordgo.Session, m *discordgo.MessageCr
 			tardis.DevListenChannel = m.ChannelID
 			s.ChannelMessageSend(m.ChannelID, ":robot: :construction: Listening to this channel")
 		}
+	case "reactrole":
+		go tardis.ServerManager.HandleDiscordMessage(s, m)
 	default:
 		{
 			if tardis.DevMode {
 				logger.Debug("Received unknown trigger")
 			}
 		}
+	}
+}
+
+func (t *tardis) handleReactionAdd(s *discordgo.Session, reaction *discordgo.MessageReactionAdd) {
+	if roles, err := t.ServerManager.GetReactRolesForMessage(server.ReactRoleMessage{GuildID: reaction.GuildID, ChannelID: reaction.ChannelID, ID: reaction.MessageID}); err == nil && roles != nil {
+		log.Debug("Adding roles to user")
+		for _, rr := range roles {
+			if reaction.Emoji.APIName() != rr.Emoji {
+				continue
+			}
+			if err := s.GuildMemberRoleAdd(reaction.GuildID, reaction.UserID, rr.Role); err != nil {
+				log.WithError(err).WithField("rr.Role_id", rr.Role).WithField("user_id", reaction.UserID).Error("Failed to add rr.Role to user")
+			}
+		}
+	}
+}
+
+func (t *tardis) handleReactionRemove(s *discordgo.Session, reaction *discordgo.MessageReactionRemove) {
+	if roles, err := t.ServerManager.GetReactRolesForMessage(server.ReactRoleMessage{GuildID: reaction.GuildID, ChannelID: reaction.ChannelID, ID: reaction.MessageID}); err == nil && roles != nil {
+		log.Debug("Removing roles to user")
+		for _, rr := range roles {
+			if reaction.Emoji.APIName() != rr.Emoji {
+				continue
+			}
+			if err := s.GuildMemberRoleRemove(reaction.GuildID, reaction.UserID, rr.Role); err != nil {
+				log.WithError(err).WithField("role_id", rr.Role).WithField("user", reaction.UserID).Error("Failed to remove role from user")
+			}
+		}
+	}
+}
+
+func handleHelp(s *discordgo.Session, m *discordgo.MessageCreate) {
+	fieldTexts := [][]string{
+		[]string{"hots", "aliases: aram | find build guides for HotS ARAM matches"},
+	}
+
+	fields := make([]*discordgo.MessageEmbedField, 0)
+
+	for _, data := range fieldTexts {
+		field := discordgo.MessageEmbedField{
+			Name:  data[0],
+			Value: data[1],
+		}
+		fields = append(fields, &field)
+	}
+
+	msg := discordgo.MessageEmbed{
+		URL:         "https://github.com/sklirg/tardis",
+		Title:       "TARDIS",
+		Description: "For feature requests and help, click the title (link).",
+		Fields:      fields,
+	}
+
+	_, err := s.ChannelMessageSendEmbed(m.ChannelID, &msg)
+	if err != nil {
+		fmt.Println("Failed to send help message :(")
 	}
 }
