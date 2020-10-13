@@ -84,6 +84,16 @@ func discordConnect(token string) (*discordgo.Session, error) {
 		return nil, err
 	}
 
+	client.Identify = discordgo.Identify{
+		Token: token,
+		Properties: discordgo.IdentifyProperties{
+			OS: "linux",
+			Browser: "tardis",
+			Device: "tardis",
+		},
+		Intents: discordgo.MakeIntent(discordgo.IntentsGuildMembers | discordgo.IntentsAllWithoutPrivileged),
+	}
+
 	return client, nil
 }
 
