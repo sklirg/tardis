@@ -20,6 +20,12 @@ type ReactRoleMessage struct {
     GuildID string
 }
 
+type WelcomeChannel struct {
+    GuildID string
+    MessageChannelID string
+    EmojiChannelID string
+}
+
 func (srv *DiscordServerStore) StoreReactRole(rr ReactRole) error {
     log.Debug("Inserting ReactRoleMessage in DB")
 	_, err := db.Query("INSERT INTO reaction_messages (guild, channel, id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", rr.Message.GuildID, rr.Message.ChannelID, rr.Message.ID)
@@ -60,4 +66,34 @@ func (srv *DiscordServerStore) GetReactRolesForMessage(rm ReactRoleMessage) ([]*
         return nil, nil
     }
     return roles, nil
+}
+
+func (srv *DiscordServerStore) StoreWelcomeChannel(w WelcomeChannel) error {
+    log.Debug("Inserting Welcome Channel in DB")
+	_, err := db.Query("INSERT INTO welcome_channel (guild, message_channel, emoji_channel) VALUES ($1, $2, $3) ON CONFLICT (guild) DO UPDATE SET message_channel = $2", w.GuildID, w.MessageChannelID, w.EmojiChannelID)
+    if err != nil {
+        log.WithError(err).Error("Failed to insert welcome channel")
+        return err
+    }
+
+    return nil
+}
+
+func (srv *DiscordServerStore) GetWelcomeChannel(guildID string) (*WelcomeChannel, error) {
+    log.Debug("Fetching welcome channel from DB")
+    rows, err := db.Query("SELECT guild, message_channel, emoji_channel FROM welcome_channel WHERE guild = $1", guildID)
+    if err != nil {
+        log.WithError(err).Error("Failed to fetch welcome channel from DB")
+        return nil, err
+    }
+
+    for rows.Next() {
+        w := WelcomeChannel{}
+        if err := rows.Scan(&w.GuildID, &w.MessageChannelID, &w.EmojiChannelID); err != nil {
+            log.WithError(err).Error("Failed to scan database row")
+            return &w, err
+        }
+        return &w, nil
+    }
+    return nil, nil
 }

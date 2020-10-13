@@ -18,6 +18,7 @@ type tardis struct {
 	ServerManager    server.DiscordServerStore
 	DevMode          bool
 	DevListenChannel string
+	WelcomeChannel map[string]*server.WelcomeChannel
 }
 
 func main() {
@@ -37,6 +38,8 @@ func main() {
 		log.SetLevel(log.TraceLevel)
 	}
 
+	state.WelcomeChannel = make(map[string]*server.WelcomeChannel)
+
 	// Set StateEnabled ?
 
 	dg, err := discordConnect(discordBotToken)
@@ -48,6 +51,7 @@ func main() {
 	dg.AddHandler(state.messageCreate)
 	dg.AddHandler(state.handleReactionAdd)
 	dg.AddHandler(state.handleReactionRemove)
+	dg.AddHandler(state.handleMemberJoin)
 
 	err = dg.Open()
 	if err != nil {
@@ -131,6 +135,31 @@ func (tardis *tardis) messageCreate(s *discordgo.Session, m *discordgo.MessageCr
 		}
 	case "reactrole":
 		go tardis.ServerManager.HandleDiscordMessage(s, m)
+	case "setwelcomechannel": {
+		w := server.WelcomeChannel{
+			GuildID: m.GuildID,
+			MessageChannelID: m.ChannelID,
+		}
+		if len(tokens) >= 2 {
+			if tokens[1][0] == '<' {
+				chanID := tokens[1][2:len(tokens[1])-1]
+				log.WithField("channel_id", chanID).WithField("token", tokens[1]).Debug("Looking up emoji channel")
+				if c, err := s.Channel(chanID); err == nil && c != nil {
+					log.WithField("channel", c.Name).Debug("Found emoji channel")
+					w.EmojiChannelID = c.ID
+				} else {
+					log.WithError(err).WithField("channel", c).Debug("Failed to lookup emoji channel")
+				}
+			}
+		}
+		if err := tardis.ServerManager.StoreWelcomeChannel(w); err != nil {
+			s.MessageReactionAdd(m.ChannelID, m.ID, "👎")
+			s.ChannelMessageSend(m.ChannelID, ":robot: Failed to set welcome channel.")
+		} else {
+			s.MessageReactionAdd(m.ChannelID, m.ID, "👍")
+			tardis.WelcomeChannel[w.GuildID] = &w
+		}
+	}
 	default:
 		{
 			if tardis.DevMode {
@@ -166,6 +195,28 @@ func (t *tardis) handleReactionRemove(s *discordgo.Session, reaction *discordgo.
 			}
 		}
 	}
+}
+
+func (t *tardis) handleMemberJoin(s *discordgo.Session, join *discordgo.GuildMemberAdd) {
+	guildID := join.GuildID
+	ch := t.WelcomeChannel[guildID]
+	if ch == nil {
+		welcomeChan, err := t.ServerManager.GetWelcomeChannel(guildID)
+		if err != nil {
+			return
+		}
+		if welcomeChan == nil {
+			log.Error("Could not find a channel to write welcomes to")
+			return
+		}
+		t.WelcomeChannel[guildID] = welcomeChan
+		ch = welcomeChan
+	}
+	if ch.EmojiChannelID == "" {
+		// Skip if we don't have a stored emoji channel
+		return
+	}
+	s.ChannelMessageSend(ch.MessageChannelID, fmt.Sprintf("Welcome, %s! The channel you are looking for might be hidden, or appear locked, but you can access them after you've clicked the appropriate emoji-reaction below the message in <#%s>. (tip: click on the link to go directly to that message)", join.Mention(), ch.EmojiChannelID))
 }
 
 func handleHelp(s *discordgo.Session, m *discordgo.MessageCreate) {
