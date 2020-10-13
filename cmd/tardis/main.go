@@ -146,6 +146,17 @@ func (tardis *tardis) messageCreate(s *discordgo.Session, m *discordgo.MessageCr
 	case "reactrole":
 		go tardis.ServerManager.HandleDiscordMessage(s, m)
 	case "setwelcomechannel": {
+		canSet := false
+		for _, role := range m.Member.Roles {
+			log.WithField("role", role).Debug("User has role")
+			if role == "697835126733799476" || role == "173844144609951744" {
+				canSet = true
+				break
+			}
+		}
+		if !canSet {
+			return
+		}
 		w := server.WelcomeChannel{
 			GuildID: m.GuildID,
 			MessageChannelID: m.ChannelID,
