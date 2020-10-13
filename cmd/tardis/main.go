@@ -180,6 +180,9 @@ func (tardis *tardis) messageCreate(s *discordgo.Session, m *discordgo.MessageCr
 }
 
 func (t *tardis) handleReactionAdd(s *discordgo.Session, reaction *discordgo.MessageReactionAdd) {
+	if reaction.UserID == s.State.SessionID {
+		return
+	}
 	if roles, err := t.ServerManager.GetReactRolesForMessage(server.ReactRoleMessage{GuildID: reaction.GuildID, ChannelID: reaction.ChannelID, ID: reaction.MessageID}); err == nil && roles != nil {
 		log.Debug("Adding roles to user")
 		for _, rr := range roles {
@@ -194,6 +197,9 @@ func (t *tardis) handleReactionAdd(s *discordgo.Session, reaction *discordgo.Mes
 }
 
 func (t *tardis) handleReactionRemove(s *discordgo.Session, reaction *discordgo.MessageReactionRemove) {
+	if reaction.UserID == s.State.SessionID {
+		return
+	}
 	if roles, err := t.ServerManager.GetReactRolesForMessage(server.ReactRoleMessage{GuildID: reaction.GuildID, ChannelID: reaction.ChannelID, ID: reaction.MessageID}); err == nil && roles != nil {
 		log.Debug("Removing roles to user")
 		for _, rr := range roles {
