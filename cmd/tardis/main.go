@@ -92,9 +92,9 @@ func discordConnect(token string) (*discordgo.Session, error) {
 	client.Identify = discordgo.Identify{
 		Token: token,
 		Properties: discordgo.IdentifyProperties{
-			OS: "linux",
+			OS:      "linux",
 			Browser: "tardis",
-			Device: "tardis",
+			Device:  "tardis",
 		},
 		Intents: discordgo.MakeIntent(discordgo.IntentsGuildMembers | discordgo.IntentsAllWithoutPrivileged),
 	}
@@ -152,42 +152,43 @@ func (tardis *tardis) messageCreate(s *discordgo.Session, m *discordgo.MessageCr
 		}
 	case "reactrole":
 		go tardis.ServerManager.HandleDiscordMessage(s, m)
-	case "setwelcomechannel": {
-		canSet := false
-		for _, role := range m.Member.Roles {
-			log.WithField("role", role).Debug("User has role")
-			if role == "697835126733799476" || role == "173844144609951744" {
-				canSet = true
-				break
-			}
-		}
-		if !canSet {
-			return
-		}
-		w := server.WelcomeChannel{
-			GuildID: m.GuildID,
-			MessageChannelID: m.ChannelID,
-		}
-		if len(tokens) >= 2 {
-			if tokens[1][0] == '<' {
-				chanID := tokens[1][2:len(tokens[1])-1]
-				log.WithField("channel_id", chanID).WithField("token", tokens[1]).Debug("Looking up emoji channel")
-				if c, err := s.Channel(chanID); err == nil && c != nil {
-					log.WithField("channel", c.Name).Debug("Found emoji channel")
-					w.EmojiChannelID = c.ID
-				} else {
-					log.WithError(err).WithField("channel", c).Debug("Failed to lookup emoji channel")
+	case "setwelcomechannel":
+		{
+			canSet := false
+			for _, role := range m.Member.Roles {
+				log.WithField("role", role).Debug("User has role")
+				if role == "697835126733799476" || role == "173844144609951744" {
+					canSet = true
+					break
 				}
 			}
+			if !canSet {
+				return
+			}
+			w := server.WelcomeChannel{
+				GuildID:          m.GuildID,
+				MessageChannelID: m.ChannelID,
+			}
+			if len(tokens) >= 2 {
+				if tokens[1][0] == '<' {
+					chanID := tokens[1][2 : len(tokens[1])-1]
+					log.WithField("channel_id", chanID).WithField("token", tokens[1]).Debug("Looking up emoji channel")
+					if c, err := s.Channel(chanID); err == nil && c != nil {
+						log.WithField("channel", c.Name).Debug("Found emoji channel")
+						w.EmojiChannelID = c.ID
+					} else {
+						log.WithError(err).WithField("channel", c).Debug("Failed to lookup emoji channel")
+					}
+				}
+			}
+			if err := tardis.ServerManager.StoreWelcomeChannel(w); err != nil {
+				s.MessageReactionAdd(m.ChannelID, m.ID, "👎")
+				s.ChannelMessageSend(m.ChannelID, ":robot: Failed to set welcome channel.")
+			} else {
+				s.MessageReactionAdd(m.ChannelID, m.ID, "👍")
+				tardis.WelcomeChannel[w.GuildID] = &w
+			}
 		}
-		if err := tardis.ServerManager.StoreWelcomeChannel(w); err != nil {
-			s.MessageReactionAdd(m.ChannelID, m.ID, "👎")
-			s.ChannelMessageSend(m.ChannelID, ":robot: Failed to set welcome channel.")
-		} else {
-			s.MessageReactionAdd(m.ChannelID, m.ID, "👍")
-			tardis.WelcomeChannel[w.GuildID] = &w
-		}
-	}
 	default:
 		{
 			if tardis.DevMode {
