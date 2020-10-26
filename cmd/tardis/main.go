@@ -18,14 +18,16 @@ type tardis struct {
 	ServerManager    server.DiscordServerStore
 	DevMode          bool
 	DevListenChannel string
-	WelcomeChannel map[string]*server.WelcomeChannel
+	DevGuildID       string
+	WelcomeChannel   map[string]*server.WelcomeChannel
 }
 
 func main() {
 	discordBotToken := os.Getenv("TARDIS_DISCORD_TOKEN")
 
 	state := tardis{
-		DevMode: os.Getenv("TARDIS_DEV") != "",
+		DevMode:    os.Getenv("TARDIS_DEV") != "",
+		DevGuildID: os.Getenv("TARDIS_DEV_GUILD"),
 		AramBuilds: &hots.AramBuilds{
 			SheetID:    os.Getenv("TARDIS_HOTS_ARAM_SHEET_ID"),
 			SheetRange: os.Getenv("TARDIS_HOTS_ARAM_SHEET_RANGE"),
@@ -35,6 +37,9 @@ func main() {
 
 	if state.DevMode {
 		log.Info("Starting in dev mode")
+		if state.DevGuildID != "" {
+			log.WithField("guild_id", state.DevGuildID).Info("DevMode with Developer Guild enabled")
+		}
 		log.SetLevel(log.TraceLevel)
 	}
 
@@ -122,10 +127,12 @@ func (tardis *tardis) messageCreate(s *discordgo.Session, m *discordgo.MessageCr
 
 	trigger := tokens[0]
 
-	if tardis.DevMode && !(trigger == "listen" || m.ChannelID == tardis.DevListenChannel) {
-		// In DevMode and received message in a channel I don't listen to, so skip
-		// But will allow the keyword 'listen' through
-		return
+	if tardis.DevMode {
+		if !(trigger == "listen" || m.ChannelID == tardis.DevListenChannel || m.GuildID == tardis.DevGuildID) {
+			// In DevMode and received message in a channel I don't listen to, so skip
+			// But will allow the keyword 'listen' through
+			return
+		}
 	}
 	logger = logger.WithField("trigger", trigger)
 
