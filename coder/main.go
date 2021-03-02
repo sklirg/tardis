@@ -115,13 +115,15 @@ func Run(s *discordgo.Session, m *discordgo.MessageCreate) error {
         Description: fmt.Sprintf("Parsed %s code:\n```%s\n%s\n```", code.Language, code.Language, lines),
         Fields: []*discordgo.MessageEmbedField{},
     }
-    if string(stdoutLogs) != "" {
-        responseMessage.Fields = append(responseMessage.Fields, &discordgo.MessageEmbedField{
-                Name: ":technologist: Output (stdout)",
-                Value: string(stdoutLogs),
-                Inline: false,
-        })
+    output := string(stdoutLogs)
+    if output == "" {
+        output = "_empty_"
     }
+    responseMessage.Fields = append(responseMessage.Fields, &discordgo.MessageEmbedField{
+            Name: ":technologist: Output (stdout)",
+            Value: output,
+            Inline: false,
+    })
     if string(stderrLogs) != "" {
         responseMessage.Fields = append(responseMessage.Fields, &discordgo.MessageEmbedField{
                 Name: ":x: Errors (stderr)",
