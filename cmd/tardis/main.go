@@ -11,6 +11,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/sklirg/tardis/hots"
 	"github.com/sklirg/tardis/server"
+	"github.com/sklirg/tardis/coder"
 )
 
 type tardis struct {
@@ -119,7 +120,7 @@ func (tardis *tardis) messageCreate(s *discordgo.Session, m *discordgo.MessageCr
 		return
 	}
 
-	tokens := strings.Split(m.Content[1:], " ")
+	tokens := strings.Split(strings.ReplaceAll(m.Content[1:], "\n", " "), " ")
 
 	if len(tokens) == 0 {
 		return
@@ -189,6 +190,11 @@ func (tardis *tardis) messageCreate(s *discordgo.Session, m *discordgo.MessageCr
 				tardis.WelcomeChannel[w.GuildID] = &w
 			}
 		}
+	case "run": {
+		if err := coder.Run(s, m); err != nil {
+			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf(":x: Something went wrong: %s", err))
+		}
+	}
 	default:
 		{
 			if tardis.DevMode {
