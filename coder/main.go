@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"strings"
 	"time"
 
@@ -42,10 +43,13 @@ func dockerRun(ctx context.Context, msg string) (<-chan *Code, error) {
 	}
 
 	// Fetch image
-	if _, err := cli.ImagePull(ctx, fmt.Sprintf("docker.io/library/%s", code.Image.Image), types.ImagePullOptions{}); err != nil {
+	imagePull, err := cli.ImagePull(ctx, fmt.Sprintf("docker.io/library/%s", code.Image.Image), types.ImagePullOptions{})
+	if err != nil {
 		log.WithError(err).Error("failed to pull image")
 		return c, err
 	}
+	content, err := ioutil.ReadAll(imagePull)
+	log.Debugf("image len: %d", len(content))
 
 	conf := container.Config{
 		Image: code.Image.Image,
