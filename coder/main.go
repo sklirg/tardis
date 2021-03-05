@@ -160,6 +160,9 @@ func dockerRun(ctx context.Context, msg string) (<-chan *Code, error) {
 
 func Run(s *discordgo.Session, m *discordgo.MessageCreate) error {
 	log.Debug("running some code smile")
+	if err := s.MessageReactionAdd(m.ChannelID, m.ID, "🚀"); err != nil {
+		log.WithError(err).Error("failed to add start-code reaction")
+	}
 	//cli, err := client.NewEnvClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
