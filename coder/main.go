@@ -28,23 +28,28 @@ func dockerRun(ctx context.Context, msg string) (<-chan *Code, error) {
 
 	if err != nil {
 		log.WithError(err).Error("Failed to init docker client")
+		c <- nil
+		return c, err
 	}
 
 	foo, err := cli.Info(ctx)
 	if err != nil {
 		log.WithError(err).Error("Failed to get cli.Info")
+		c <- nil
 		return c, err
 	}
 	log.Infof("Foo: %v", foo)
 
 	code, err := parseCode(msg)
 	if err != nil {
+		c <- nil
 		return c, err
 	}
 
 	// Fetch image
 	imagePull, err := cli.ImagePull(ctx, fmt.Sprintf("docker.io/library/%s", code.Image.Image), types.ImagePullOptions{})
 	if err != nil {
+		c <- nil
 		log.WithError(err).Error("failed to pull image")
 		return c, err
 	}
@@ -63,6 +68,7 @@ func dockerRun(ctx context.Context, msg string) (<-chan *Code, error) {
 	container, err := cli.ContainerCreate(ctx, &conf, &hostConf, &netConf, name)
 	if err != nil {
 		log.WithError(err).Error("Failed to create container")
+		c <- nil
 		return c, err
 	}
 
@@ -95,6 +101,7 @@ func dockerRun(ctx context.Context, msg string) (<-chan *Code, error) {
 	if err != nil {
 		_, timedOut := ctx.Deadline()
 		log.WithError(err).WithField("context_timeout", timedOut).WithField("status", status).Error("Failed to wait for container exit")
+		c <- nil
 		return c, err
 	}
 
@@ -106,12 +113,14 @@ func dockerRun(ctx context.Context, msg string) (<-chan *Code, error) {
 	})
 	if err != nil {
 		log.WithError(err).Error("failed to get container logs")
+		c <- nil
 		return c, err
 	}
 
 	stdoutLogs, err := io.ReadAll(stdoutReader)
 	if err != nil && err != io.EOF {
 		log.WithError(err).Error("failed to read from logs reader")
+		c <- nil
 		return c, err
 	}
 	defer stdoutReader.Close()
@@ -124,12 +133,14 @@ func dockerRun(ctx context.Context, msg string) (<-chan *Code, error) {
 	})
 	if err != nil {
 		log.WithError(err).Error("failed to get container logs")
+		c <- nil
 		return c, err
 	}
 
 	stderrLogs, err := io.ReadAll(stderrReader)
 	if err != nil && err != io.EOF {
 		log.WithError(err).Error("failed to read from logs reader")
+		c <- nil
 		return c, err
 	}
 	defer stderrReader.Close()
@@ -169,6 +180,7 @@ func Run(s *discordgo.Session, m *discordgo.MessageCreate) error {
 
 	if err != nil {
 		log.WithError(err).Error("dockerRun has err")
+		return err
 	}
 
 	if err := ctx.Err(); err != nil {
