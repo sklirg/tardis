@@ -195,20 +195,16 @@ func Run(s *discordgo.Session, m *discordgo.MessageCreate) error {
 		Description: fmt.Sprintf("Parsed %s code:\n```%s\n%s\n```", code.Language, code.Language, lines),
 		Fields:      []*discordgo.MessageEmbedField{},
 	}
-	output := code.Stdout
+	output := strings.TrimSpace(string(code.Stdout))
 	if len(output) == 0 {
 		output = "_empty_"
 	}
-	responseMessage.Fields = append(responseMessage.Fields, &discordgo.MessageEmbedField{
-		Name:   ":technologist: Output (stdout)",
-		Value:  output,
-		Inline: false,
-	})
+	responseMessage.Description = fmt.Sprintf("%s\n\n:technologist: Output (stdout):\n```%s\n%s```", responseMessage.Description, code.Language, output)
 	log.Debugf("code.Stderr = '%#v'", code.Stderr)
 	if len(code.Stderr) > 0 {
 		responseMessage.Fields = append(responseMessage.Fields, &discordgo.MessageEmbedField{
 			Name:   ":x: Errors (stderr)",
-			Value:  fmt.Sprintf("```\n%s\n```", code.Stderr),
+			Value:  fmt.Sprintf("```\n%s\n```", strings.TrimSpace(string(code.Stderr))),
 			Inline: false,
 		})
 	}
@@ -216,6 +212,7 @@ func Run(s *discordgo.Session, m *discordgo.MessageCreate) error {
 	_, err = s.ChannelMessageSendEmbed(m.ChannelID, &responseMessage)
 	if err != nil {
 		log.WithError(err).Error("Failed to reply with output")
+		s.ChannelMessageSend(m.ChannelID, ":robot: Failed to send reply. :( Maybe the output is too long?")
 	}
 
 	return nil
