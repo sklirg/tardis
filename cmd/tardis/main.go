@@ -205,7 +205,7 @@ func (tardis *tardis) messageCreate(s *discordgo.Session, m *discordgo.MessageCr
 }
 
 func (t *tardis) handleReactionAdd(s *discordgo.Session, reaction *discordgo.MessageReactionAdd) {
-	if reaction.UserID == s.State.SessionID {
+	if reaction.UserID == s.State.User.ID {
 		return
 	}
 	if roles, err := t.ServerManager.GetReactRolesForMessage(server.ReactRoleMessage{GuildID: reaction.GuildID, ChannelID: reaction.ChannelID, ID: reaction.MessageID}); err == nil && roles != nil {
