@@ -194,6 +194,7 @@ func (tardis *tardis) messageCreate(s *discordgo.Session, m *discordgo.MessageCr
 		{
 			if err := coder.Run(s, m); err != nil {
 				s.ChannelMessageSend(m.ChannelID, fmt.Sprintf(":x: Something went wrong: %s", err))
+				coder.SendHelp(s, m)
 			}
 		}
 	default:

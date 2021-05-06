@@ -225,6 +225,10 @@ func Run(s *discordgo.Session, m *discordgo.MessageCreate) error {
 	return nil
 }
 
+func SendHelp(s *discordgo.Session, m *discordgo.MessageCreate) {
+	s.ChannelMessageSend(m.ChannelID, ":robot: Use the `!run` command like this:\n!run\n\\`\\`\\`python\nprint(\"Hello, world!\")\n\\`\\`\\`\nWhere 'python' can be any supported language.`")
+}
+
 type Code struct {
 	Lines    []string
 	Language string
