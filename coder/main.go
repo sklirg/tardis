@@ -124,8 +124,8 @@ func dockerRun(ctx context.Context, msg string) (<-chan *Code, error) {
 		return c, err
 	}
 	defer stdoutReader.Close()
-	log.Debugf("Logs: '%s'", string(stdoutLogs))
-	code.Stdout = string(stdoutLogs)
+	code.Stdout = strings.TrimSpace(string(stdoutLogs))
+	log.Debugf("Logs: '%s'", code.Stdout)
 
 	// stderr
 	stderrReader, err := cli.ContainerLogs(ctx, container.ID, types.ContainerLogsOptions{
@@ -144,8 +144,8 @@ func dockerRun(ctx context.Context, msg string) (<-chan *Code, error) {
 		return c, err
 	}
 	defer stderrReader.Close()
-	log.Debugf("Logs (err): '%s'", string(stderrLogs))
-	code.Stderr = string(stderrLogs)
+	code.Stderr = strings.TrimSpace(string(stderrLogs))
+	log.Debugf("Logs (err): '%s'", code.Stderr)
 
 	log.Debug("done creating code struct")
 
