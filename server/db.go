@@ -117,5 +117,3 @@ func (srv *DiscordServerStore) GetWelcomeChannel(guildID string) (*WelcomeChanne
 	}
 	return nil, nil
 }
-
-

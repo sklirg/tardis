@@ -9,9 +9,9 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	log "github.com/sirupsen/logrus"
+	"github.com/sklirg/tardis/coder"
 	"github.com/sklirg/tardis/hots"
 	"github.com/sklirg/tardis/server"
-	"github.com/sklirg/tardis/coder"
 )
 
 type tardis struct {
@@ -190,11 +190,12 @@ func (tardis *tardis) messageCreate(s *discordgo.Session, m *discordgo.MessageCr
 				tardis.WelcomeChannel[w.GuildID] = &w
 			}
 		}
-	case "run": {
-		if err := coder.Run(s, m); err != nil {
-			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf(":x: Something went wrong: %s", err))
+	case "run":
+		{
+			if err := coder.Run(s, m); err != nil {
+				s.ChannelMessageSend(m.ChannelID, fmt.Sprintf(":x: Something went wrong: %s", err))
+			}
 		}
-	}
 	default:
 		{
 			if tardis.DevMode {

@@ -92,9 +92,9 @@ func (srv *DiscordServerStore) HandleDiscordMessage(s *discordgo.Session, m *dis
 		var err error
 		if role, err = s.State.Role(m.GuildID, roleParam); err != nil {
 			logger.WithError(err).Error("Failed to fetch role by id")
-            return fmt.Errorf("Failed to fetch role by ID")
+			return fmt.Errorf("Failed to fetch role by ID")
 		}
-    } else {
+	} else {
 		// Role param is a string, most likely the role name. Let's try to find it.
 		guild, err := s.State.Guild(m.GuildID)
 		if err != nil {
@@ -112,8 +112,8 @@ func (srv *DiscordServerStore) HandleDiscordMessage(s *discordgo.Session, m *dis
 			logger.Error("Failed finding role")
 			return fmt.Errorf("failed to find role")
 		}
-        logger.WithField("role", role).Debug("Found role")
-    }
+		logger.WithField("role", role).Debug("Found role")
+	}
 	logger = logger.WithField("role_id", role.ID).WithField("role_name", role.Name)
 	logger.Debug("Identified role")
 
@@ -152,23 +152,23 @@ func (srv *DiscordServerStore) HandleDiscordMessage(s *discordgo.Session, m *dis
 	}
 	msg.GuildID = m.GuildID // this is not set when we retrieve the message
 
-    // All seems good, let's persist this
+	// All seems good, let's persist this
 	// store in db smile
-    if err := srv.StoreReactRole(ReactRole{
-        Message: &ReactRoleMessage{
-            GuildID: msg.GuildID,
-            ChannelID: msg.ChannelID,
-            ID: msg.ID,
-        },
-        Role: role.ID,
-        Emoji: emojiName,
-    }); err != nil {
-        return fmt.Errorf("failed to store in db")
-    }
+	if err := srv.StoreReactRole(ReactRole{
+		Message: &ReactRoleMessage{
+			GuildID:   msg.GuildID,
+			ChannelID: msg.ChannelID,
+			ID:        msg.ID,
+		},
+		Role:  role.ID,
+		Emoji: emojiName,
+	}); err != nil {
+		return fmt.Errorf("failed to store in db")
+	}
 
 	if err := s.MessageReactionAdd(msg.ChannelID, msg.ID, emojiName); err != nil {
 		logger.WithError(err).Error("Failed to add reaction to message")
-        
+
 		return fmt.Errorf("failed to find message to add reaction to")
 	}
 	if _, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Okay! Giving %s to users when they click %s on that message in <#%s> (%s).", role.Mention(), reaction, channel, messageLink(msg))); err != nil {
