@@ -54,7 +54,11 @@ func dockerRun(ctx context.Context, msg string) (<-chan *Code, error) {
 		return c, err
 	}
 	content, err := ioutil.ReadAll(imagePull)
-	log.Debugf("image len: %d", len(content))
+	if err != nil {
+		log.WithError(err).Error("failed to read pulled docker image")
+		return c, err
+	}
+	log.Tracef("image len: %d", len(content))
 
 	conf := container.Config{
 		Image: code.Image.Image,
