@@ -187,6 +187,7 @@ func Run(s *discordgo.Session, m *discordgo.MessageCreate) error {
 
 	if err != nil {
 		log.WithError(err).Error("dockerRun has err")
+		s.MessageReactionAdd(m.ChannelID, m.ID, "❌")
 		return err
 	}
 
@@ -195,6 +196,9 @@ func Run(s *discordgo.Session, m *discordgo.MessageCreate) error {
 		s.MessageReactionAdd(m.ChannelID, m.ID, "⏰")
 		return TimeoutError
 	}
+
+	// We got a successful response
+	s.MessageReactionAdd(m.ChannelID, m.ID, "✅")
 
 	lines := strings.Join(code.Lines, "\n")
 	responseMessage := discordgo.MessageEmbed{
