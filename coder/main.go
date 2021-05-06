@@ -198,7 +198,7 @@ func Run(s *discordgo.Session, m *discordgo.MessageCreate) error {
 
 	lines := strings.Join(code.Lines, "\n")
 	responseMessage := discordgo.MessageEmbed{
-		Title:       fmt.Sprintf("Coder"),
+		Title:       "Coder",
 		Description: fmt.Sprintf("Parsed %s code:\n```%s\n%s\n```", code.Language, code.Language, lines),
 		Fields:      []*discordgo.MessageEmbedField{},
 	}
