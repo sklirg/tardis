@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 
 var UnsupportedLanguage = errors.New("unsupported programming language")
 var TimeoutError = errors.New("code execution timeout")
+const discordCharLimit = 2000
 
 func dockerRun(ctx context.Context, msg string) (<-chan *Code, error) {
 	c := make(chan *Code, 1)
@@ -161,6 +164,20 @@ func dockerRun(ctx context.Context, msg string) (<-chan *Code, error) {
 
 	return c, nil
 }
+func parseFromFile( lang string, URL string)( err error , code string){
+	resp, err := http.Get(URL)
+	if ( err != nil){
+		return err, ""
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if ( err != nil){
+		return err, ""
+	}
+	//TODO: refactor
+	s:= "```"+lang+"\n"+string(body[:])+"\n````"
+	return nil,s
+}
 
 func Run(s *discordgo.Session, m *discordgo.MessageCreate) error {
 	log.Debug("running some code smile")
@@ -170,9 +187,36 @@ func Run(s *discordgo.Session, m *discordgo.MessageCreate) error {
 	//cli, err := client.NewEnvClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
+	
+	//Has attachments files
+	if(len(m.Attachments) > 0){
+		lang:="undefined";
+
+		//ADD more laguages here
+		matchedPy, _ :=regexp.MatchString(`\.py?`, m.Attachments[0].URL)
+		jsMatched, _  :=regexp.MatchString(`\.js?`,m.Attachments[0].URL)
+		
+		if matchedPy == true {
+				lang = "python"
+		}else if jsMatched == true {
+				lang = "js"
+		}else{
+			//Not a valid format
+			return errors.New("Not a valid file format")
+		}
+		err, msg := parseFromFile(lang,m.Attachments[0].URL)
+
+		if err!= nil {
+			log.WithError(err).Error("fileparsing has err")
+			s.MessageReactionAdd(m.ChannelID, m.ID, "❌")
+			return err
+		}
+		//returns parsed file as embeded message
+		m.Content = msg
+	}
 
 	ch, err := dockerRun(ctx, m.Content)
-
+	
 	var code *Code
 	select {
 	case code = <-ch:
@@ -190,6 +234,7 @@ func Run(s *discordgo.Session, m *discordgo.MessageCreate) error {
 		s.MessageReactionAdd(m.ChannelID, m.ID, "❌")
 		return err
 	}
+	
 
 	if err := ctx.Err(); err != nil {
 		log.WithError(err).Error("ctx has err")
@@ -201,6 +246,12 @@ func Run(s *discordgo.Session, m *discordgo.MessageCreate) error {
 	s.MessageReactionAdd(m.ChannelID, m.ID, "✅")
 
 	lines := strings.Join(code.Lines, "\n")
+	
+	if len(lines)> discordCharLimit {
+		//will only happen on file input
+		lines = "Input to long to parse :(\n"
+	}
+
 	responseMessage := discordgo.MessageEmbed{
 		Title:       "Coder",
 		Description: fmt.Sprintf("Parsed %s code:\n```%s\n%s\n```", code.Language, code.Language, lines),
