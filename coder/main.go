@@ -192,11 +192,14 @@ func Run(s *discordgo.Session, m *discordgo.MessageCreate) error {
 	if(len(m.Attachments) > 0){
 		lang:="undefined";
 
+		
+		isPy,_ :=regexp.MatchString(`\.py?`, m.Attachments[0].URL)
+		isJs, _ :=regexp.MatchString(`\.js?`,m.Attachments[0].URL)
 		//ADD more laguages here	
 		switch{
-		case regexp.MatchString(`\.py?`, m.Attachments[0].URL):
+		case isPy:
 			lang = "python"
-		case regexp.MatchString(`\.js?`,m.Attachments[0].URL):
+		case isJs:
 			lang = "js"
 		default:
 			return errors.New("Not a valid file format")
