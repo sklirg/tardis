@@ -192,16 +192,13 @@ func Run(s *discordgo.Session, m *discordgo.MessageCreate) error {
 	if(len(m.Attachments) > 0){
 		lang:="undefined";
 
-		//ADD more laguages here
-		matchedPy, _ :=regexp.MatchString(`\.py?`, m.Attachments[0].URL)
-		jsMatched, _  :=regexp.MatchString(`\.js?`,m.Attachments[0].URL)
-		
-		if matchedPy == true {
-				lang = "python"
-		}else if jsMatched == true {
-				lang = "js"
-		}else{
-			//Not a valid format
+		//ADD more laguages here	
+		switch{
+		case regexp.MatchString(`\.py?`, m.Attachments[0].URL):
+			lang = "python"
+		case regexp.MatchString(`\.js?`,m.Attachments[0].URL):
+			lang = "js"
+		default:
 			return errors.New("Not a valid file format")
 		}
 		err, msg := parseFromFile(lang,m.Attachments[0].URL)
@@ -277,7 +274,7 @@ func Run(s *discordgo.Session, m *discordgo.MessageCreate) error {
 		s.ChannelMessageSend(m.ChannelID, ":robot: Failed to send reply. :( Maybe the output is too long?")
 	}
 
-	return nil
+	return nil	
 }
 
 func SendHelp(s *discordgo.Session, m *discordgo.MessageCreate) {
