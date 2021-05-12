@@ -25,4 +25,4 @@ jobs:
       run: go test -v ./...
 
     - name: gofmt
-      run: gofmt -s -l -e -d (find . -name "*.go")
+      run: gofmt -s -l -e -d $(find . -name "*.go")
