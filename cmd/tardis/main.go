@@ -264,7 +264,7 @@ func (t *tardis) handleMemberJoin(s *discordgo.Session, join *discordgo.GuildMem
 
 func handleHelp(s *discordgo.Session, m *discordgo.MessageCreate) {
 	fieldTexts := [][]string{
-		[]string{"hots", "aliases: aram | find build guides for HotS ARAM matches"},
+		{"hots", "aliases: aram | find build guides for HotS ARAM matches"},
 	}
 
 	fields := make([]*discordgo.MessageEmbedField, 0)
