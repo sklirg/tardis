@@ -117,7 +117,7 @@ func (srv *DiscordServerStore) HandleDiscordMessage(s *discordgo.Session, m *dis
 	logger = logger.WithField("role_id", role.ID).WithField("role_name", role.Name)
 	logger.Debug("Identified role")
 
-	userPermissions := 0
+	var userPermissions int64
 	if perms, err := s.State.UserChannelPermissions(m.Author.ID, channel); err != nil {
 		logger.WithError(err).Error("Failed to look up user permissions")
 	} else {
@@ -131,7 +131,7 @@ func (srv *DiscordServerStore) HandleDiscordMessage(s *discordgo.Session, m *dis
 		return fmt.Errorf("user has not enough permissions")
 	}
 
-	botPerms := 0
+	var botPerms int64
 	if perms, err := s.State.UserChannelPermissions(s.State.Ready.User.ID, channel); err != nil {
 		logger.WithError(err).Error("Failed to look up my own user permissions")
 	} else {
@@ -204,7 +204,7 @@ func GetValidEmoji(emoji, guildID string, s *discordgo.Session) (string, error) 
 	return emoji, nil
 }
 
-func hasPerms(expectedPermission, permissions int) bool {
+func hasPerms(expectedPermission, permissions int64) bool {
 	anded := expectedPermission & permissions
 	r := anded == expectedPermission
 	log.WithFields(log.Fields{

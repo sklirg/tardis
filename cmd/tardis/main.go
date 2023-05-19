@@ -67,8 +67,6 @@ func main() {
 
 	log.Info("Bot is now running. Press CTRL-C to exit.")
 
-	log.WithField("state", *dg.State).Debug("State")
-
 	for _, guild := range dg.State.Ready.Guilds {
 		// Fetch guild info from database if we have it
 		log.WithField("guild_id", guild.ID).Debugf("Connected to '%s'", guild.Name)
@@ -97,7 +95,7 @@ func discordConnect(token string) (*discordgo.Session, error) {
 			Browser: "tardis",
 			Device:  "tardis",
 		},
-		Intents: discordgo.MakeIntent(discordgo.IntentsGuildMembers | discordgo.IntentsAllWithoutPrivileged),
+		Intents: discordgo.MakeIntent(discordgo.IntentsGuildMembers | discordgo.IntentsAllWithoutPrivileged | discordgo.IntentsGuildMessages),
 	}
 
 	return client, nil
