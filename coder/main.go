@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -19,6 +21,8 @@ import (
 
 var UnsupportedLanguage = errors.New("unsupported programming language")
 var TimeoutError = errors.New("code execution timeout")
+
+const discordCharLimit = 2000
 
 func dockerRun(ctx context.Context, msg string) (<-chan *Code, error) {
 	c := make(chan *Code, 1)
@@ -161,6 +165,21 @@ func dockerRun(ctx context.Context, msg string) (<-chan *Code, error) {
 
 	return c, nil
 }
+func parseFromFile(lang string, URL string) (err error, code string) {
+	resp, err := http.Get(URL)
+	if err != nil {
+		return err, ""
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+
+	if err != nil || len(string(body[:]))==0   {
+		return err, ""
+	}
+	//TODO: refactor
+	s := "```" + lang + "\n" + string(body[:]) + "\n````"
+	return nil, s
+}
 
 func Run(s *discordgo.Session, m *discordgo.MessageCreate) error {
 	log.Debug("running some code smile")
@@ -170,6 +189,28 @@ func Run(s *discordgo.Session, m *discordgo.MessageCreate) error {
 	//cli, err := client.NewEnvClient()
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
+
+	//Has attachments files
+	if len(m.Attachments) > 0 {
+		//allows for files mistakenly saved as .{lang}.txt
+		fext := filepath.Ext(strings.TrimSuffix(m.Attachments[0].URL, ".txt"))
+		lang, err := parseLang(fext)
+
+		if err != nil {
+			log.WithError(err).Error("fileparsing has unsupported lang")
+			s.MessageReactionAdd(m.ChannelID, m.ID, "❌")
+			return err
+		}
+		err, msg := parseFromFile(lang, m.Attachments[0].URL)
+
+		if err != nil {
+			log.WithError(err).Error("fileparsing has err")
+			s.MessageReactionAdd(m.ChannelID, m.ID, "❌")
+			return err
+		}
+		//returns parsed file as embeded message
+		m.Content = msg
+	}
 
 	ch, err := dockerRun(ctx, m.Content)
 
@@ -201,6 +242,12 @@ func Run(s *discordgo.Session, m *discordgo.MessageCreate) error {
 	s.MessageReactionAdd(m.ChannelID, m.ID, "✅")
 
 	lines := strings.Join(code.Lines, "\n")
+
+	if len(lines) > discordCharLimit {
+		//will only happen on file input
+		lines = fmt.Sprintf("Input exeedes discords message limit:\n%v chars\n",len(lines))
+	}
+
 	responseMessage := discordgo.MessageEmbed{
 		Title:       "Coder",
 		Description: fmt.Sprintf("Parsed %s code:\n```%s\n%s\n```", code.Language, code.Language, lines),
@@ -296,11 +343,11 @@ func parseCode(msg string) (*Code, error) {
 
 func parseLang(msg string) (string, error) {
 	switch msg {
-	case "python":
+	case "python", ".py":
 		{
 			return "python", nil
 		}
-	case "node", "js", "javascript":
+	case "node", "js", "javascript", ".js":
 		{
 			return "javascript", nil
 		}
