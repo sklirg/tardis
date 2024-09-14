@@ -3,7 +3,7 @@ module github.com/sklirg/tardis
 go 1.23.1
 
 require (
-	github.com/bwmarrin/discordgo v0.27.1
+	github.com/bwmarrin/discordgo v0.28.1
 	github.com/docker/engine-api v0.4.0
 	github.com/golang-migrate/migrate/v4 v4.13.0
 	github.com/lib/pq v1.8.0
