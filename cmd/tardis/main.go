@@ -21,10 +21,14 @@ type tardis struct {
 	DevListenChannel string
 	DevGuildID       string
 	WelcomeChannel   map[string]*server.WelcomeChannel
+	Commands         *server.ApplicationCommands
 }
 
 func Run() {
 	discordBotToken := os.Getenv("TARDIS_DISCORD_TOKEN")
+	applicationID := os.Getenv("TARDIS_APPLICATION_ID")
+
+	applicationCommands := server.ApplicationCommands{Commands: make(map[string]*server.ApplicationCommand)}
 
 	state := tardis{
 		DevMode:    os.Getenv("TARDIS_DEV") != "",
@@ -34,6 +38,7 @@ func Run() {
 			SheetRange: os.Getenv("TARDIS_HOTS_ARAM_SHEET_RANGE"),
 		},
 		ServerManager: server.DiscordServerStore{},
+		Commands:      &applicationCommands,
 	}
 
 	if state.DevMode {
@@ -58,6 +63,7 @@ func Run() {
 	dg.AddHandler(state.handleReactionAdd)
 	dg.AddHandler(state.handleReactionRemove)
 	dg.AddHandler(state.handleMemberJoin)
+	dg.AddHandler(state.handleApplicationCommands)
 
 	err = dg.Open()
 	if err != nil {
@@ -72,11 +78,35 @@ func Run() {
 		log.WithField("guild_id", guild.ID).Debugf("Connected to '%s'", guild.Name)
 	}
 
+	log.Infof("Registering %d application commands", len(server.AvailableApplicationCommands(nil)))
+
+	for _, guild := range dg.State.Ready.Guilds {
+		for _, applicationCommand := range server.AvailableApplicationCommands(&state.ServerManager) {
+			logger := log.WithField("application_name", applicationCommand.Name)
+			registered, err := dg.ApplicationCommandCreate(applicationID, guild.ID, applicationCommand.Command)
+			if err != nil {
+				logger.WithError(err).Errorf("Failed to register command: %v", applicationCommand.Command)
+			} else {
+				logger.WithField("id", registered.ID).Info("Registered command")
+				applicationCommand.ID = registered.ID
+				state.Commands.Commands[registered.ID] = applicationCommand
+			}
+		}
+	}
+
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
 	<-sc
 
 	log.Info("Received interrupt, shutting down.")
+
+	for _, guild := range dg.State.Ready.Guilds {
+		for id := range state.Commands.Commands {
+			if err := dg.ApplicationCommandDelete(applicationID, guild.ID, id); err != nil {
+				log.WithError(err).Warn("failed to delete application")
+			}
+		}
+	}
 
 	dg.Close()
 }
@@ -286,4 +316,8 @@ func handleHelp(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if err != nil {
 		fmt.Println("Failed to send help message :(")
 	}
+}
+
+func (tardis *tardis) handleApplicationCommands(s *discordgo.Session, event *discordgo.InteractionCreate) {
+	tardis.Commands.HandleApplicationCommands(s, event)
 }

@@ -204,6 +204,25 @@ func GetValidEmoji(emoji, guildID string, s *discordgo.Session) (string, error) 
 	return emoji, nil
 }
 
+func IsUnicodeEmoji(emojiID string) bool {
+	if _, err := strconv.ParseInt(emojiID, 10, 64); err != nil {
+		// EmojiID is not an int, we assume it is a unicode emoji
+		return true
+	}
+	return false
+}
+
+func GuildHasEmoji(emojiID, guildID string, s *discordgo.Session) bool {
+	if IsUnicodeEmoji(emojiID) {
+		return true
+	}
+	if _, err := s.State.Emoji(guildID, emojiID); err != nil {
+		log.WithError(err).Debugf("Couldnt find emoji: %s", emojiID)
+		return false
+	}
+	return true
+}
+
 func hasPerms(expectedPermission, permissions int64) bool {
 	anded := expectedPermission & permissions
 	r := anded == expectedPermission
