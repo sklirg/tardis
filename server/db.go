@@ -1,8 +1,11 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
+
 	log "github.com/sirupsen/logrus"
+
 	// Imported for side effects
 	_ "github.com/lib/pq"
 )
@@ -116,4 +119,120 @@ func (srv *DiscordServerStore) GetWelcomeChannel(guildID string) (*WelcomeChanne
 		return &w, nil
 	}
 	return nil, nil
+}
+
+func (srv *DiscordServerStore) CreateReactRoleInteractionProgress(wip *ReactRoleInteraction) (string, error) {
+	if db == nil {
+		log.Error("Database is nil!")
+		return "", errors.New("not connected to database")
+	}
+
+	log.Debug("Creating interaction in progress in DB")
+
+	data, err := json.Marshal(wip)
+	if err != nil {
+		log.WithError(err).Error("failed to create placeholder react role interaction in progress")
+	}
+
+	rows, err := db.Query("INSERT INTO interaction_in_progress (data) VALUES($1) RETURNING id", data)
+	if err != nil {
+		log.WithError(err).Error("Failed to create interaction in progress")
+		return "", err
+	}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			log.WithError(err).Error("Failed to scan database row")
+			return id, err
+		}
+		return id, nil
+	}
+
+	return "", nil
+}
+
+func (srv *DiscordServerStore) GetReactRoleInteractionProgress(id string) (*ReactRoleInteraction, error) {
+	if db == nil {
+		log.Error("Database is nil!")
+		return nil, errors.New("not connected to database")
+	}
+
+	log.WithField("id", id).Debug("Getting interaction in progress from DB")
+	rows, err := db.Query("SELECT id, data FROM interaction_in_progress WHERE id = $1", id)
+	if err != nil {
+		log.WithError(err).Error("Failed to get interaction in progress")
+		return nil, err
+	}
+	for rows.Next() {
+		var id string
+		var j []byte
+		var data ReactRoleInteraction
+		if err := rows.Scan(&id, &j); err != nil {
+			log.WithError(err).Error("Failed to scan database row")
+			return nil, err
+		}
+		err := json.Unmarshal(j, &data)
+		data.ID = id
+		if err != nil {
+			log.WithError(err).Error("failed to unmarshal interaction in prgoress")
+		}
+		log.WithFields(log.Fields{
+			"interaction": data,
+		}).Debug("Got this interaction in progress")
+		return &data, nil
+	}
+
+	return nil, nil
+}
+
+func (srv *DiscordServerStore) StoreReactRoleInteractionProgress(interaction *ReactRoleInteraction) error {
+	if db == nil {
+		log.Error("Database is nil!")
+		return errors.New("not connected to database")
+	}
+
+	data, _ := json.Marshal(interaction)
+
+	log.Debug("Inserting interaction in progress in DB")
+	_, err := db.Query(`
+                INSERT INTO interaction_in_progress
+                        (id, data)
+                VALUES ($1, $2)
+                ON CONFLICT (id)
+                DO UPDATE SET data = $2`,
+		interaction.ID, data)
+	if err != nil {
+		log.WithError(err).Error("Failed to insert interaction in progress")
+		return err
+	}
+
+	return nil
+}
+
+type ReactRoleInteraction struct {
+	ID           string `json:"id"`
+	ChannelID    string `json:"channel_id"`
+	MessageID    string `json:"message_id"`
+	EmojiID      string `json:"emoji_id"`
+	RoleID       string `json:"role_id"`
+	emojiHandler func()
+}
+
+type ReactRoleAction int
+
+const (
+	Initial ReactRoleAction = iota + 1
+	RoleSelect
+	EmojiSelect
+	Confirm
+)
+
+func (i *ReactRoleInteraction) GetAction() ReactRoleAction {
+	if i.ChannelID == "" || i.MessageID == "" || i.RoleID == "" {
+		return RoleSelect
+	} else if i.EmojiID == "" {
+		return EmojiSelect
+	} else {
+		return Confirm
+	}
 }

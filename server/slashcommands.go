@@ -13,10 +13,11 @@ type ApplicationCommands struct {
 }
 
 type ApplicationCommand struct {
-	Name    string
-	ID      string
-	Command *discordgo.ApplicationCommand
-	store   *DiscordServerStore
+	Name     string
+	ID       string
+	Command  *discordgo.ApplicationCommand
+	store    *DiscordServerStore
+	inFlight map[string]*ReactRoleInteraction
 }
 
 func AvailableApplicationCommands(store *DiscordServerStore) []*ApplicationCommand {
@@ -31,7 +32,8 @@ func AvailableApplicationCommands(store *DiscordServerStore) []*ApplicationComma
 			DefaultMemberPermissions: &adminCommandPerm,
 			Type:                     discordgo.MessageApplicationCommand,
 		},
-		store: store,
+		store:    store,
+		inFlight: make(map[string]*ReactRoleInteraction),
 	})
 
 	log.WithField("available_commands", len(commands)).Info("Listing available commands")
@@ -74,19 +76,49 @@ func (cmd *ApplicationCommand) GetID(event *discordgo.InteractionCreate) string 
 	return ""
 }
 
-func (cmd *ApplicationCommand) GetAction(event *discordgo.InteractionCreate) string {
-	actionString := ""
+func (cmd *ApplicationCommand) GetAction(event *discordgo.InteractionCreate) ReactRoleAction {
+	var interactionInProgress *ReactRoleInteraction
+	var err error
+
 	switch event.Data.Type() {
 	case discordgo.InteractionApplicationCommand:
 		data := event.ApplicationCommandData()
-		actionString = data.ID
+		interactionInProgress, err = cmd.store.GetReactRoleInteractionProgress(data.ID)
+		if err != nil {
+			log.WithError(err).Error("Failed to get action")
+		}
 	case discordgo.InteractionMessageComponent:
-		data := event.MessageComponentData()
-		actionString = data.CustomID
+		id := strings.Split(event.MessageComponentData().CustomID, ";")[1]
+		interactionInProgress, err = cmd.store.GetReactRoleInteractionProgress(id)
+		if err != nil {
+			log.WithError(err).Error("Failed to get action")
+		}
 	}
 
-	components := strings.Split(actionString, ";")
-	return strings.Split(components[len(components)-1], "=")[0]
+	return interactionInProgress.GetAction()
+}
+
+func (cmd *ApplicationCommand) GetInProgressID(event *discordgo.InteractionCreate) string {
+	var interactionInProgress *ReactRoleInteraction
+	var err error
+
+	switch event.Data.Type() {
+	case discordgo.InteractionApplicationCommand:
+		data := event.ApplicationCommandData()
+		interactionInProgress, err = cmd.store.GetReactRoleInteractionProgress(data.ID)
+		if err != nil {
+			log.WithError(err).Error("Failed to get current int progress id")
+		}
+	case discordgo.InteractionMessageComponent:
+		id := strings.Split(event.MessageComponentData().CustomID, ";")[1]
+		log.WithField("id", id).Debug("Got ID")
+		interactionInProgress, err = cmd.store.GetReactRoleInteractionProgress(id)
+		if err != nil {
+			log.WithError(err).Error("Failed to get current int progress id")
+		}
+	}
+
+	return interactionInProgress.ID
 }
 
 func (cmd *ApplicationCommand) Respond(s *discordgo.Session, event *discordgo.InteractionCreate) error {
@@ -95,6 +127,16 @@ func (cmd *ApplicationCommand) Respond(s *discordgo.Session, event *discordgo.In
 
 	switch event.Type {
 	case discordgo.InteractionApplicationCommand:
+		data := interaction.ApplicationCommandData()
+		wip := ReactRoleInteraction{
+			ChannelID: event.ChannelID,
+			MessageID: data.TargetID,
+		}
+		id, err := cmd.store.CreateReactRoleInteractionProgress(&wip)
+		wip.ID = id
+		if err != nil {
+			log.WithError(err).Error("failed to create interaction in progress")
+		}
 		v := discordgo.InteractionResponseChannelMessageWithSource
 		response := discordgo.InteractionResponse{
 			Type: v,
@@ -106,77 +148,61 @@ func (cmd *ApplicationCommand) Respond(s *discordgo.Session, event *discordgo.In
 						Components: []discordgo.MessageComponent{
 							discordgo.SelectMenu{
 								MenuType: discordgo.RoleSelectMenu,
-								CustomID: fmt.Sprintf("%s;r", cmd.ID),
+								CustomID: fmt.Sprintf("%s;%s", cmd.ID, wip.ID),
 							},
 						},
 					},
 				},
 			},
 		}
+
 		return s.InteractionRespond(interaction, &response)
 
 	case discordgo.InteractionMessageComponent:
+		logger := log.WithField("event", "messagelol")
+		logger.Info("Respond message component")
+
 		data := event.MessageComponentData()
+
+		id := cmd.GetInProgressID(event)
+		logger = logger.WithFields(log.Fields{
+			"in_progress_id": id,
+		})
+
+		var emojiHandlerCancel func()
+		if cmd.inFlight[id] != nil {
+			emojiHandlerCancel = cmd.inFlight[id].emojiHandler
+		}
+		wip, err := cmd.store.GetReactRoleInteractionProgress(id)
+		if err != nil {
+			return err
+		}
+		cmd.inFlight[id] = wip
+		cmd.inFlight[id].emojiHandler = emojiHandlerCancel
+
 		action := cmd.GetAction(event)
-		logger := log.WithFields(log.Fields{
+		logger = log.WithFields(log.Fields{
 			"action": action,
 		})
-		logger.Info("Respond message component")
+
 		switch action {
-		case "r":
+		case RoleSelect:
 			roles := make([]string, 0)
 			for _, role := range data.Resolved.Roles {
 				roles = append(roles, role.ID)
 			}
 			roleIDs := strings.Join(roles, ",")
+			wip.RoleID = roleIDs
+			if err := cmd.store.StoreReactRoleInteractionProgress(wip); err != nil {
+				return err
+			}
+
 			logger.Info("Role collected, prompting for emoji")
 
-			// TODO: deal with cancelling this handler
-			_ = s.AddHandler(func(s *discordgo.Session, m *discordgo.MessageReactionAdd) {
-				// FIXME implement this check:
-				//if m.MessageID != originalMessageID
-
-				logger.Debug("Handling emoji/message selector")
-
-				buttonText := "Add this emoji"
-				buttonStyle := discordgo.PrimaryButton
-				buttonEnabled := true
-
-				emojiID := m.Emoji.ID
-				if emojiID == "" {
-					emojiID = m.Emoji.Name
-				}
-
-				if !GuildHasEmoji(emojiID, event.GuildID, s) {
-					buttonText = "That emoji is invalid! Pick another one."
-					buttonStyle = discordgo.DangerButton
-					buttonEnabled = false
-				}
-				customID := fmt.Sprintf("%s;%s;%s;r=%s;e=%s", cmd.ID, m.ChannelID, m.MessageID, roleIDs, emojiID)
-
-				if msg, err := s.InteractionResponseEdit(interaction, &discordgo.WebhookEdit{
-					Components: &[]discordgo.MessageComponent{
-						discordgo.ActionsRow{
-							Components: []discordgo.MessageComponent{
-								discordgo.Button{
-									CustomID: customID,
-									Emoji: &discordgo.ComponentEmoji{
-										Name:     m.Emoji.Name,
-										ID:       m.Emoji.ID,
-										Animated: m.Emoji.Animated,
-									},
-									Disabled: !buttonEnabled,
-									Label:    buttonText,
-									Style:    buttonStyle,
-								},
-							},
-						},
-					},
-				}); err != nil {
-					logger.WithError(err).WithField("msg", msg).Error("failed to create button massage")
-				}
-
+			handler := s.AddHandler(func(s *discordgo.Session, m *discordgo.MessageReactionAdd) {
+				cmd.roleReactInteractionEmojiHandler(s, m, event)
 			})
+			cmd.inFlight[id].emojiHandler = handler
 
 			v := discordgo.InteractionResponseChannelMessageWithSource
 			response := discordgo.InteractionResponse{
@@ -192,74 +218,127 @@ func (cmd *ApplicationCommand) Respond(s *discordgo.Session, event *discordgo.In
 									Style:    discordgo.SecondaryButton,
 									CustomID: "Nothing",
 									Disabled: true,
-									// URL:   fmt.Sprintf("https://discord.com/channels/%s/%s/%s", data.),
 								},
 							},
 						},
 					},
 				},
 			}
+
 			return s.InteractionRespond(interaction, &response)
 
-		case "e":
-			log.Info("Saving role reaction")
+			// case EmojiSelect:
+			// Handled by roleReactInteractionEmojiHandler
 
-			channelID := strings.Split(data.CustomID, ";")[1]
-			messageID := strings.Split(data.CustomID, ";")[2]
-
-			roleComponent := strings.Split(data.CustomID, ";")[3]
-			roleList := strings.Split(roleComponent, "=")[1]
-			roleID := strings.Split(roleList, ",")[0]
-
-			emojiComponent := strings.Split(data.CustomID, ";")[4]
-			emoji := strings.Split(emojiComponent, "=")[1]
-
+		case Confirm:
 			logger = logger.WithFields(log.Fields{
-				"channel_id": channelID,
-				"message_id": messageID,
-				"role_id":    roleID,
-				"emoji":      emoji,
+				"channel_id": wip.ChannelID,
+				"message_id": wip.MessageID,
+				"role_id":    wip.RoleID,
+				"emoji":      wip.EmojiID,
 			})
+			logger.Info("Saving role reaction")
 
 			if err := cmd.store.StoreReactRole(ReactRole{
 				Message: &ReactRoleMessage{
 					GuildID:   interaction.GuildID,
-					ChannelID: channelID,
-					ID:        messageID,
+					ChannelID: wip.ChannelID,
+					ID:        wip.MessageID,
 				},
-				Role:  roleID,
-				Emoji: emoji,
+				Role:  wip.RoleID,
+				Emoji: wip.EmojiID,
 			}); err != nil {
+				logger.WithError(err).Error("failed to store emoji in db")
 				return fmt.Errorf("failed to store reaction role in db")
 			}
 
-			if !IsUnicodeEmoji(emoji) {
-				emojiID, err := s.State.Emoji(interaction.GuildID, emoji)
+			if !IsUnicodeEmoji(wip.EmojiID) {
+				emojiID, err := s.State.Emoji(interaction.GuildID, wip.EmojiID)
 				if err != nil {
 					logger.WithError(err).Error("failed to get emoji")
 				}
-				emoji = emojiID.APIName()
+				wip.EmojiID = emojiID.APIName()
 			}
 
-			if err := s.MessageReactionsRemoveEmoji(channelID, messageID, emoji); err != nil {
-				logger.WithError(err).Errorf("Failed to clear message of reaction %s", emoji)
+			if err := s.MessageReactionsRemoveEmoji(wip.ChannelID, wip.MessageID, wip.EmojiID); err != nil {
+				logger.WithError(err).Errorf("Failed to clear message of reaction %s", wip.EmojiID)
 			}
-			if err := s.MessageReactionAdd(channelID, messageID, emoji); err != nil {
-				logger.WithError(err).Errorf("Failed to react to message with reaction %s", emoji)
+			if err := s.MessageReactionAdd(wip.ChannelID, wip.MessageID, wip.EmojiID); err != nil {
+				logger.WithError(err).Errorf("Failed to react to message with reaction %s", wip.EmojiID)
 			}
 
 			v := discordgo.InteractionResponseChannelMessageWithSource
 			response := discordgo.InteractionResponse{
 				Type: v,
 				Data: &discordgo.InteractionResponseData{
-					Content: fmt.Sprintf(":+1: Granting %s when user clicks on %s below this message: %s/%s", roleID, emoji, channelID, messageID),
+					Content: fmt.Sprintf(":+1: Granting %s when user clicks on %s below this message: %s/%s", wip.RoleID, wip.EmojiID, wip.ChannelID, wip.MessageID),
 					Flags:   discordgo.MessageFlagsEphemeral,
 				},
 			}
 			if err := s.InteractionRespond(interaction, &response); err != nil {
 				logger.WithError(err).Error("failed to acknowledge emoji add flow")
 			}
+			wip.emojiHandler()
 		}
 	}
 	return nil
+}
+
+func (cmd *ApplicationCommand) roleReactInteractionEmojiHandler(s *discordgo.Session, m *discordgo.MessageReactionAdd, event *discordgo.InteractionCreate) {
+	id := cmd.GetInProgressID(event)
+	interactionInProgress, err := cmd.store.GetReactRoleInteractionProgress(id)
+	if err != nil {
+		log.WithError(err).Error("failed to get interaction in progress")
+	}
+	logger := log.WithFields(log.Fields{
+		"in_progress_id": id,
+	})
+
+	if m.ChannelID != interactionInProgress.ChannelID || m.MessageID != interactionInProgress.MessageID {
+		return
+	}
+
+	logger.Debug("Handling emoji/message selector")
+
+	buttonText := "Add this emoji"
+	buttonStyle := discordgo.PrimaryButton
+	buttonEnabled := true
+
+	emojiID := m.Emoji.ID
+	if emojiID == "" {
+		emojiID = m.Emoji.Name
+	}
+
+	if !GuildHasEmoji(emojiID, event.GuildID, s) {
+		buttonText = "That emoji is invalid! Pick another one."
+		buttonStyle = discordgo.DangerButton
+		buttonEnabled = false
+	}
+
+	msg, err := s.InteractionResponseEdit(event.Interaction, &discordgo.WebhookEdit{
+		Components: &[]discordgo.MessageComponent{
+			discordgo.ActionsRow{
+				Components: []discordgo.MessageComponent{
+					discordgo.Button{
+						CustomID: fmt.Sprintf("%s;%s", cmd.ID, interactionInProgress.ID),
+						Emoji: &discordgo.ComponentEmoji{
+							Name:     m.Emoji.Name,
+							ID:       m.Emoji.ID,
+							Animated: m.Emoji.Animated,
+						},
+						Disabled: !buttonEnabled,
+						Label:    buttonText,
+						Style:    buttonStyle,
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		logger.WithError(err).WithField("msg", msg).Error("failed to create button massage")
+		return
+	}
+
+	interactionInProgress.EmojiID = emojiID // TODO: use APIName() here
+	cmd.store.StoreReactRoleInteractionProgress(interactionInProgress)
 }
