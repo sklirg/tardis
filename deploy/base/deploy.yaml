@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: tardis
+  name: tardis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tardis
+  template:
+    metadata:
+      labels:
+        app: tardis
+    spec:
+      initContainers:
+        - image: ghcr.io/sklirg/tardis:v1
+          args:
+            - migrate
+          name: migrate
+          envFrom:
+            - secretRef:
+                name: tardis
+          env:
+            - name: DATABASE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: tardis.tardis.credentials.postgresql.acid.zalan.do
+                  key: username
+                  optional: false
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tardis.tardis.credentials.postgresql.acid.zalan.do
+                  key: password
+                  optional: false
+            - name: DATABASE_URL
+              value: "postgres://$(DATABASE_USERNAME):$(DATABASE_PASSWORD)@tardis:5432/tardis?sslmode=require"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 50Mi
+            limits:
+              memory: 100Mi
+      containers:
+        - image: ghcr.io/sklirg/tardis:v1
+          name: tardis
+          envFrom:
+            - secretRef:
+                name: tardis
+          env:
+            - name: DATABASE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: tardis.tardis.credentials.postgresql.acid.zalan.do
+                  key: username
+                  optional: false
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tardis.tardis.credentials.postgresql.acid.zalan.do
+                  key: password
+                  optional: false
+            - name: DATABASE_URL
+              value: "postgres://$(DATABASE_USERNAME):$(DATABASE_PASSWORD)@tardis:5432/tardis?sslmode=require"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 50Mi
+            limits:
+              memory: 100Mi
