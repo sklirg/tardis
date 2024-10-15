@@ -1,21 +1,22 @@
 package migrate
 
 import (
+	"embed"
 	"os"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 	log "github.com/sirupsen/logrus"
 )
 
+//go:embed migrations/*.sql
+var fs embed.FS
+
 func Migrate() {
 	log.Info("Starting database migration")
-	pat := os.Getenv("DATABASE_MIGRATIONS")
-	if pat == "" {
-		pat = "file:///app/db/migrations"
-	}
-	log.WithField("location", pat).Debug("Migrations location")
+        d, err := iofs.New(fs, "migrations")
 
 	connStr := os.Getenv("DATABASE_URL")
 	if connStr == "" {
@@ -23,7 +24,7 @@ func Migrate() {
 		os.Exit(1)
 	}
 
-	m, err := migrate.New(pat, connStr)
+	m, err := migrate.NewWithSourceInstance("iofs", d, connStr)
 	if err != nil {
 		log.WithError(err).Error("Failed to read migrations")
 		os.Exit(1)
