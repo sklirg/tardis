@@ -1,4 +1,4 @@
-package main
+package migrate
 
 import (
 	"os"
@@ -9,7 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func main() {
+func Migrate() {
 	log.Info("Starting database migration")
 	pat := os.Getenv("DATABASE_MIGRATIONS")
 	if pat == "" {

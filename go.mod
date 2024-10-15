@@ -8,5 +8,6 @@ require (
 	github.com/golang-migrate/migrate/v4 v4.13.0
 	github.com/lib/pq v1.8.0
 	github.com/sirupsen/logrus v1.7.0
+	github.com/spf13/cobra v1.8.1
 	google.golang.org/api v0.30.0
 )

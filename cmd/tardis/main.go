@@ -1,4 +1,4 @@
-package main
+package tardis
 
 import (
 	"fmt"
@@ -23,7 +23,7 @@ type tardis struct {
 	WelcomeChannel   map[string]*server.WelcomeChannel
 }
 
-func main() {
+func Run() {
 	discordBotToken := os.Getenv("TARDIS_DISCORD_TOKEN")
 
 	state := tardis{
