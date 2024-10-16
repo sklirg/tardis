@@ -22,6 +22,9 @@ type tardis struct {
 	DevGuildID       string
 	WelcomeChannel   map[string]*server.WelcomeChannel
 	Commands         *server.ApplicationCommands
+	dg               *discordgo.Session
+
+	cleanUpMissingMembers bool
 }
 
 func Run() {
@@ -39,6 +42,8 @@ func Run() {
 		},
 		ServerManager: server.DiscordServerStore{},
 		Commands:      &applicationCommands,
+
+		cleanUpMissingMembers: false,
 	}
 
 	if state.DevMode {
@@ -51,19 +56,21 @@ func Run() {
 
 	state.WelcomeChannel = make(map[string]*server.WelcomeChannel)
 
-	// Set StateEnabled ?
-
 	dg, err := discordConnect(discordBotToken)
 	if err != nil {
 		fmt.Println("error connecting", err)
 		return
 	}
 
+	state.dg = dg
+
 	dg.AddHandler(state.messageCreate)
 	dg.AddHandler(state.handleReactionAdd)
 	dg.AddHandler(state.handleReactionRemove)
 	dg.AddHandler(state.handleMemberJoin)
 	dg.AddHandler(state.handleApplicationCommands)
+	dg.AddHandler(state.handleMemberChunk)
+	dg.AddHandler(state.handleGuildReady)
 
 	err = dg.Open()
 	if err != nil {
@@ -125,10 +132,44 @@ func discordConnect(token string) (*discordgo.Session, error) {
 			Browser: "tardis",
 			Device:  "tardis",
 		},
-		Intents: discordgo.MakeIntent(discordgo.IntentsGuildMembers | discordgo.IntentsAllWithoutPrivileged | discordgo.IntentsGuildMessages),
+		Intents: discordgo.IntentsAllWithoutPrivileged | discordgo.IntentsGuildMembers | discordgo.IntentsGuildMessages,
 	}
 
+	client.StateEnabled = true
+	client.State.TrackMembers = true
+	client.State.TrackRoles = true
+
 	return client, nil
+}
+
+func (tardis *tardis) handleGuildReady(s *discordgo.Session, _ *discordgo.Ready) {
+	log.Info("Received guilds ready event")
+
+	for _, guild := range s.State.Guilds {
+		tardis.dg.State.GuildAdd(guild)
+		log.WithField("guild_id", guild.ID).Info("Requesting guild members")
+		if err := s.RequestGuildMembers(guild.ID, "", 0, "", false); err != nil {
+			log.WithError(err).Error("failed to request guild members")
+			continue
+		}
+	}
+}
+
+func (tardis *tardis) handleMemberChunk(_ *discordgo.Session, c *discordgo.GuildMembersChunk) {
+	log.Infof("Got guild member chunk %d of %d (%d members)", c.ChunkIndex+1, c.ChunkCount, len(c.Members))
+
+	for _, member := range c.Members {
+		if err := tardis.dg.State.MemberAdd(member); err != nil {
+			log.WithError(err).Error("failed to add guild member")
+			break
+		}
+	}
+
+	if c.ChunkIndex == c.ChunkCount-1 {
+		if err := tardis.syncReactionRoles(c.GuildID); err != nil {
+			log.WithError(err).Error("failed to sync reaction roles")
+		}
+	}
 }
 
 func (tardis *tardis) messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -269,6 +310,7 @@ func (t *tardis) handleReactionRemove(s *discordgo.Session, reaction *discordgo.
 }
 
 func (t *tardis) handleMemberJoin(s *discordgo.Session, join *discordgo.GuildMemberAdd) {
+	log.Infof("Handling member join, %s, at %s", join.DisplayName(), join.JoinedAt)
 	guildID := join.GuildID
 	ch := t.WelcomeChannel[guildID]
 	if ch == nil {
@@ -320,4 +362,75 @@ func handleHelp(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 func (tardis *tardis) handleApplicationCommands(s *discordgo.Session, event *discordgo.InteractionCreate) {
 	tardis.Commands.HandleApplicationCommands(s, event)
+}
+
+func (tardis *tardis) syncReactionRoles(guildID string) error {
+	logger := log.WithField("func", "syncReactionRoles")
+	logger.Info("Syncing reaction roles")
+
+	roles, err := tardis.ServerManager.GetReactionRoles()
+	if err != nil {
+		return err
+	}
+
+	for _, role := range roles {
+		logger = logger.WithField("role_id", role.Role)
+
+		paginationEnd := ""
+		users := make([]*discordgo.User, 0)
+		for {
+			reactions, err := tardis.dg.MessageReactions(role.Message.ChannelID, role.Message.ID, role.Emoji, 100, "", paginationEnd)
+			if err != nil {
+				logger.Error("failed to get reactions for emoji")
+				break
+			}
+			logger.Infof("found %d %s reactions on %s, last one: %s, pageEnd: %s", len(reactions), role.Emoji, role.Message.ID, reactions[len(reactions)-1].ID, paginationEnd)
+			users = append(users, reactions...)
+
+			if len(reactions) < 100 || paginationEnd == reactions[len(reactions)-1].ID {
+				break
+			}
+			paginationEnd = reactions[len(reactions)-1].ID
+		}
+
+		for _, user := range users {
+			logger = logger.WithFields(log.Fields{
+				"user_display_name": user.String(),
+				"user_id":           user.ID,
+			})
+			member, err := tardis.dg.State.Member(guildID, user.ID)
+			if err != nil {
+				logger.WithError(err).Warnf("Failed getting guild member, they might not be a member any more")
+
+				// Clean up reactions from the missing members
+				if tardis.cleanUpMissingMembers {
+					if err := tardis.dg.MessageReactionRemove(role.Message.ChannelID, role.Message.ID, role.Emoji, user.ID); err != nil {
+						logger.WithError(err).Error("Failed to clean up emoji for probably not a member any more")
+					}
+				}
+				continue
+			}
+
+			// Figure out if user already has the role,
+			hasRole := false
+			for _, roleID := range member.Roles {
+				if roleID == role.Role {
+					hasRole = true
+					break
+				}
+			}
+			// if so, we can skip adding it.
+			if hasRole {
+				continue
+			}
+
+			logger.Info("Adding role to user")
+
+			if err := tardis.dg.GuildMemberRoleAdd(role.Message.GuildID, user.ID, role.Role); err != nil {
+				logger.WithError(err).Error("failed to sync role for user")
+			}
+		}
+
+	}
+	return nil
 }

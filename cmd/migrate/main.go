@@ -16,7 +16,7 @@ var fs embed.FS
 
 func Migrate() {
 	log.Info("Starting database migration")
-        d, err := iofs.New(fs, "migrations")
+	d, err := iofs.New(fs, "migrations")
 
 	connStr := os.Getenv("DATABASE_URL")
 	if connStr == "" {

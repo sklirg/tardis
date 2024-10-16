@@ -236,3 +236,29 @@ func (i *ReactRoleInteraction) GetAction() ReactRoleAction {
 		return Confirm
 	}
 }
+
+func (srv *DiscordServerStore) GetReactionRoles() ([]*ReactRole, error) {
+	if db == nil {
+		log.Error("Database is nil!")
+		return nil, errors.New("not connected to database")
+	}
+
+	rows, err := db.Query("SELECT id, message_guild, message_channel, message_id, reaction, role FROM reaction_message_reactions")
+	if err != nil {
+		log.WithError(err).Error("Failed to SELECT")
+	}
+
+	roles := make([]*ReactRole, 0)
+	for rows.Next() {
+		rr := ReactRole{
+			Message: &ReactRoleMessage{},
+		}
+		if err := rows.Scan(&rr.id, &rr.Message.GuildID, &rr.Message.ChannelID, &rr.Message.ID, &rr.Emoji, &rr.Role); err != nil {
+			log.WithError(err).Error("Failed to Scan() reaction role messages reactions")
+			return nil, err
+		}
+		roles = append(roles, &rr)
+	}
+
+	return roles, nil
+}
